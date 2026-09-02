@@ -280,31 +280,37 @@ final class MenuBarManager: ObservableObject {
                     await refreshOnly()
                 }
             }
+            let before = Self.onScreenWindowIDs()
             if let clickable = items.first(where: { $0.key == item.key }), clickable.isOnScreen {
                 try? await MenuBarItemMover.click(clickable)
             }
             guard wasCollapsed else { return }
-            // Fold back once the item's menu or popover is gone, or after a
-            // generous timeout in case it never opened anything.
-            try? await Task.sleep(for: .milliseconds(500))
-            let deadline = ContinuousClock.now + .seconds(30)
+            // Whatever the click opened (a menu, a Control Center panel, a
+            // popover) shows up as new on-screen windows. Fold back once they
+            // are gone, or after a generous timeout if nothing ever opened.
+            try? await Task.sleep(for: .milliseconds(400))
+            let opened = Self.onScreenWindowIDs().subtracting(before)
+            let deadline = ContinuousClock.now + .seconds(60)
             while ContinuousClock.now < deadline, !Task.isCancelled,
-                  NSEvent.pressedMouseButtons != 0 || Self.isMenuOpen() {
+                  NSEvent.pressedMouseButtons != 0 || !opened.isDisjoint(with: Self.onScreenWindowIDs()) {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             if !Task.isCancelled { setHiddenSectionCollapsed(true) }
         }
     }
 
-    /// True while any app has a menu or status item popover on screen.
-    private static func isMenuOpen() -> Bool {
-        let popUp = Int(CGWindowLevelForKey(.popUpMenuWindow))
-        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
-        return infos.contains { info in
-            guard let layer = info[kCGWindowLayer as String] as? Int else { return false }
-            // Menus sit at the pop-up level; status item popovers one below.
-            return layer == popUp || layer == popUp - 1
+    /// Ids of everything currently drawn, status item windows excluded so
+    /// our own unfold/fold does not count as something opening.
+    private static func onScreenWindowIDs() -> Set<CGWindowID> {
+        let statusLevel = Int(CGWindowLevelForKey(.statusWindow))
+        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        var ids = Set<CGWindowID>()
+        for info in infos {
+            guard let id = info[kCGWindowNumber as String] as? CGWindowID,
+                  (info[kCGWindowLayer as String] as? Int) != statusLevel else { continue }
+            ids.insert(id)
         }
+        return ids
     }
 
     private func refreshOnly() async {

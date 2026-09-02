@@ -12,6 +12,8 @@ struct NotchyApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var signalSource: DispatchSourceSignal?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         terminateOtherInstances()
         Accessibility.requestTrust()
@@ -24,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    /// `kill`/`pkill` send SIGTERM, which skips `applicationWillTerminate`.
+    /// `kill`/`pkill` send SIGTERM, which skips `applicationShouldTerminate`.
     /// Route it through a normal terminate so status items get removed.
     private func installSignalHandlers() {
         signal(SIGTERM, SIG_IGN)
@@ -34,19 +36,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signalSource = source
     }
 
-    private var signalSource: DispatchSourceSignal?
-
-    /// Xcode does not kill the previous run of a windowless app, and two copies
-    /// fighting over the same status items is confusing. Only a duplicate of
-    /// *this exact bundle* is terminated, so a debug build does not quit the
-    /// copy installed in /Applications.
+    /// Two copies fighting over the same status items make a mess of the
+    /// bar, so any other running copy is asked to quit. Its own teardown
+    /// unfolds and removes its items before it exits.
     private func terminateOtherInstances() {
-        let ownPath = Bundle.main.bundleURL.resolvingSymlinksInPath().path
         let ownPID = ProcessInfo.processInfo.processIdentifier
         NSRunningApplication.runningApplications(
             withBundleIdentifier: Bundle.main.bundleIdentifier ?? ""
         )
-        .filter { $0.processIdentifier != ownPID && $0.bundleURL?.resolvingSymlinksInPath().path == ownPath }
+        .filter { $0.processIdentifier != ownPID }
         .forEach { $0.terminate() }
     }
 }
