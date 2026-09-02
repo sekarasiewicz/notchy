@@ -8,7 +8,13 @@ import AppKit
 /// overlap, which also weeds out ghost windows Control Center keeps around
 /// after an app quits.
 enum MenuBarScanner {
-    static func scan() -> [MenuBarItem] {
+    /// Runs off the main thread; the AX walk takes tens of milliseconds even
+    /// with the no-extras cache warm.
+    static func scan() async -> [MenuBarItem] {
+        await Task.detached(priority: .userInitiated) { scanSync() }.value
+    }
+
+    static func scanSync() -> [MenuBarItem] {
         let windows = statusItemWindows()
         var extras = Accessibility.allExtras()
 

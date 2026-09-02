@@ -19,8 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSignalHandlers()
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MenuBarManager.shared.tearDown()
+        return .terminateNow
     }
 
     /// `kill`/`pkill` send SIGTERM, which skips `applicationWillTerminate`.

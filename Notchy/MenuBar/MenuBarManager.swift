@@ -50,14 +50,26 @@ final class MenuBarManager: ObservableObject {
         divider.setTarget(self, action: #selector(toggleHiddenSection(_:)))
     }
 
+    /// Built once; hosting a SwiftUI view costs a visible fraction of a second.
+    private func makePopover() -> NSPopover {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(
+            rootView: MenuPanel().environmentObject(self)
+        )
+        self.popover = popover
+        return popover
+    }
+
     func start() {
+        _ = makePopover()
         refresh()
         #if DEBUG
         if let key = ProcessInfo.processInfo.environment["NOTCHY_MOVE_TEST"] {
             // Move the item whose key contains `key` right next to the divider.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
-                self.refresh()
+                await self.refreshOnly()
                 guard let item = self.items.first(where: { $0.key.contains(key) }), let divider = self.dividerItem else {
                     fputs("=== move test: item or divider not found\n", stderr); return
                 }
@@ -74,7 +86,7 @@ final class MenuBarManager: ObservableObject {
         if let key = ProcessInfo.processInfo.environment["NOTCHY_REVEAL_TEST"] {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
-                self.refresh()
+                await self.refreshOnly()
                 let snapshot = self.items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
                 self.hiddenImages.merge(await ItemImageCapture.capture(snapshot)) { _, new in new }
                 self.setHiddenSectionCollapsed(true)
@@ -107,18 +119,50 @@ final class MenuBarManager: ObservableObject {
     }
 
     /// Control Center keeps drawing a status item whose owner died without
-    /// removing it. Take ours down explicitly so a relaunch does not leave
-    /// ghosts in the bar.
+    /// removing it, and removing a stretched spacer does not make the bar
+    /// re-layout, so the folded icons would stay off screen. Unfold first,
+    /// let the bar settle, then take our items down.
+    ///
+    /// Synchronous on purpose: this runs from `applicationShouldTerminate`,
+    /// where main-actor tasks would never get scheduled.
     func tearDown() {
         refreshTimer?.invalidate()
+        revealTask?.cancel()
+        if isHiddenSectionCollapsed {
+            divider.setCollapsed(false)
+            Self.spin(.milliseconds(400))
+        }
         divider.remove()
         let position = StatusItemDefaults.preferredPosition("NotchyMain")
         NSStatusBar.system.removeStatusItem(mainItem)
         StatusItemDefaults.setPreferredPosition(position, "NotchyMain")
+        Self.spin(.milliseconds(200))
     }
 
+    /// Pump the run loop so AppKit can talk to Control Center before we exit.
+    private static func spin(_ duration: Duration) {
+        let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: seconds))
+    }
+
+    private var refreshTask: Task<Void, Never>?
+
     func refresh() {
-        items = MenuBarScanner.scan()
+        guard refreshTask == nil else { return }
+        refreshTask = Task { @MainActor in
+            defer { refreshTask = nil }
+            let started = ContinuousClock.now
+            items = await MenuBarScanner.scan()
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NOTCHY_DUMP"] != nil {
+                fputs("=== scan took \(ContinuousClock.now - started)\n", stderr)
+            }
+            #endif
+            didRefresh()
+        }
+    }
+
+    private func didRefresh() {
         enforceDividerOrder()
         // Something no longer fits: fold the hidden section so the visible
         // ones get their room back. Expanding again is the user's call.
@@ -175,7 +219,7 @@ final class MenuBarManager: ObservableObject {
         Task { @MainActor in
             defer { enforcingOrder = false }
             try? await MenuBarItemMover.move(spacer, to: .leftOf(chevron))
-            refreshOnly()
+            await refreshOnly()
         }
     }
 
@@ -226,14 +270,14 @@ final class MenuBarManager: ObservableObject {
                 setHiddenSectionCollapsed(false)
                 try? await Task.sleep(for: .milliseconds(300))
             }
-            refreshOnly()
+            await refreshOnly()
             guard let fresh = items.first(where: { $0.key == item.key }) else { return }
             if !fresh.isOnScreen {
                 // Still no room even when expanded: park it next to the
                 // divider so it is at least reachable.
                 if let divider = dividerItem {
                     try? await MenuBarItemMover.move(fresh, to: .rightOf(divider))
-                    refreshOnly()
+                    await refreshOnly()
                 }
             }
             if let clickable = items.first(where: { $0.key == item.key }), clickable.isOnScreen {
@@ -263,8 +307,8 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
-    private func refreshOnly() {
-        items = MenuBarScanner.scan()
+    private func refreshOnly() async {
+        items = await MenuBarScanner.scan()
     }
 
     @objc private func toggleHiddenSection(_ sender: Any?) {
@@ -275,7 +319,7 @@ final class MenuBarManager: ObservableObject {
         divider.setCollapsed(collapsed)
         isHiddenSectionCollapsed = collapsed
         if !collapsed {
-            expandedWithWindows = Set(MenuBarScanner.scan().filter { !$0.isOwnedByNotchy }.map(\.windowID))
+            expandedWithWindows = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
         }
         refresh()
     }
@@ -288,13 +332,8 @@ final class MenuBarManager: ObservableObject {
             return
         }
         guard let button = mainItem.button else { return }
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(
-            rootView: MenuPanel().environmentObject(self)
-        )
+        let popover = self.popover ?? makePopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        self.popover = popover
         refresh()
     }
 }

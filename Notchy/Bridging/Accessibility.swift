@@ -29,16 +29,39 @@ enum Accessibility {
         let element: AXUIElement
     }
 
+    /// Every AX round trip costs ~30 ms, and most of the 100+ running
+    /// processes have no status items. Remember who has none and only ask
+    /// them again occasionally.
+    private static let noExtrasLock = NSLock()
+    nonisolated(unsafe) private static var noExtrasUntil: [pid_t: Date] = [:]
+    private static let recheckInterval: TimeInterval = 60
+
     /// All status items of all running apps. Needs Accessibility permission;
-    /// returns an empty array without it.
+    /// returns an empty array without it. Safe to call off the main thread.
     static func allExtras() -> [Extra] {
         guard isTrusted else { return [] }
+        let now = Date()
         var out: [Extra] = []
-        for app in NSWorkspace.shared.runningApplications {
-            let ax = AXUIElementCreateApplication(app.processIdentifier)
+        let apps = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy != .prohibited && $0.isFinishedLaunching && !$0.isTerminated
+        }
+        for app in apps {
+            let pid = app.processIdentifier
+            noExtrasLock.lock()
+            let skip = noExtrasUntil[pid].map { $0 > now } ?? false
+            noExtrasLock.unlock()
+            if skip { continue }
+
+            let ax = AXUIElementCreateApplication(pid)
             guard let bar: AXUIElement = attribute(ax, "AXExtrasMenuBar"),
-                  let children: [AXUIElement] = attribute(bar, kAXChildrenAttribute)
-            else { continue }
+                  let children: [AXUIElement] = attribute(bar, kAXChildrenAttribute),
+                  !children.isEmpty
+            else {
+                noExtrasLock.lock()
+                noExtrasUntil[pid] = now.addingTimeInterval(recheckInterval)
+                noExtrasLock.unlock()
+                continue
+            }
             let sorted = children
                 .map { ($0, frame(of: $0)) }
                 .sorted { $0.1.minX < $1.1.minX }
