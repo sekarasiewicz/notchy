@@ -42,6 +42,14 @@ struct MenuBarItem: Identifiable, Hashable {
         return appName ?? title ?? "Unknown"
     }
 
+    /// Apple pins the clock and Control Center to the right edge; they
+    /// refuse to move and would only waste an attempt.
+    var canBeManaged: Bool {
+        !isOwnedByNotchy && ownerPID != nil
+            && axIdentifier != "com.apple.menuextra.clock"
+            && axIdentifier != "com.apple.menuextra.controlcenter"
+    }
+
     var isOwnedByNotchy: Bool {
         ownerPID == ProcessInfo.processInfo.processIdentifier
     }

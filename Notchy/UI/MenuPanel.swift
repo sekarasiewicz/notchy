@@ -23,11 +23,9 @@ struct MenuPanel: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("HIDDEN")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+            sectionHeader("Hidden", hint: "Folds behind ‹")
             if manager.hiddenSectionItems.isEmpty {
-                Text("Nothing left of the divider. ⌘-drag icons past the ‹ to hide them.")
+                Text("Nothing yet. Use Hide next to a visible icon, or ⌘-drag icons left of ‹ in the menu bar.")
                     .font(.caption).foregroundStyle(.tertiary)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 36), spacing: 4)], spacing: 4) {
@@ -48,9 +46,14 @@ struct MenuPanel: View {
                             .background(Color(white: 0.18), in: RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
-                        .help(item.displayName)
+                        .help("\(item.displayName) — click to open")
+                        .contextMenu {
+                            Button("Show in menu bar") { manager.show(item) }
+                        }
                     }
                 }
+                Text("Click to open. Right-click to move back out.")
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
 
             Toggle("Fold hidden section when icons run out of room", isOn: $manager.autoCollapse)
@@ -67,7 +70,19 @@ struct MenuPanel: View {
                 }
             }
 
-            section("Visible", manager.visibleSectionItems)
+            sectionHeader("Visible", hint: "Stays in the bar")
+            ForEach(manager.visibleSectionItems.filter { !$0.isOwnedByNotchy }) { item in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(item.isOnScreen ? Color.green : Color.red)
+                        .frame(width: 6, height: 6)
+                    Text(item.displayName).font(.callout).lineLimit(1)
+                    Spacer()
+                    Button("Hide") { manager.hide(item) }
+                        .controlSize(.mini)
+                        .disabled(!item.canBeManaged)
+                }
+            }
 
             Divider()
             HStack {
@@ -92,27 +107,12 @@ struct MenuPanel: View {
         #endif
     }
 
-    @ViewBuilder
-    private func section(_ title: String, _ items: [MenuBarItem]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-            if items.isEmpty {
-                Text("None").font(.caption).foregroundStyle(.tertiary)
-            }
-            ForEach(items) { item in
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(item.isOnScreen ? Color.green : Color.red)
-                        .frame(width: 6, height: 6)
-                    Text(item.displayName).font(.callout).lineLimit(1)
-                    Spacer()
-                    Text("\(Int(item.frame.minX))–\(Int(item.frame.maxX))")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
+    private func sectionHeader(_ title: String, hint: String) -> some View {
+        HStack {
+            Text(title.uppercased()).font(.caption2.weight(.semibold))
+            Spacer()
+            Text(hint).font(.caption2)
         }
+        .foregroundStyle(.secondary)
     }
 }

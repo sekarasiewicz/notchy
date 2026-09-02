@@ -96,6 +96,15 @@ final class MenuBarManager: ObservableObject {
                 self.reveal(item)
             }
         }
+        if let key = ProcessInfo.processInfo.environment["NOTCHY_HIDE_TEST"] {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                await self.refreshOnly()
+                if let item = self.items.first(where: { $0.key.contains(key) }) { fputs("=== hide \(item.key)\n", stderr); self.hide(item) }
+                try? await Task.sleep(for: .seconds(4))
+                if let item = self.items.first(where: { $0.key.contains(key) }) { fputs("=== show \(item.key)\n", stderr); self.show(item) }
+            }
+        }
         if ProcessInfo.processInfo.environment["NOTCHY_OPEN_PANEL"] != nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(6))
@@ -311,6 +320,36 @@ final class MenuBarManager: ObservableObject {
             ids.insert(id)
         }
         return ids
+    }
+
+    // MARK: Section membership
+
+    /// Move an item into the hidden section: directly left of the spacer.
+    func hide(_ item: MenuBarItem) {
+        Task { @MainActor in
+            let wasCollapsed = isHiddenSectionCollapsed
+            if wasCollapsed { setHiddenSectionCollapsed(false); try? await Task.sleep(for: .milliseconds(300)) }
+            await refreshOnly()
+            guard let target = spacerItem ?? dividerItem, let fresh = items.first(where: { $0.key == item.key }) else { return }
+            try? await MenuBarItemMover.move(fresh, to: .leftOf(target))
+            await refreshOnly()
+            if wasCollapsed { setHiddenSectionCollapsed(true) }
+            refresh()
+        }
+    }
+
+    /// Move an item into the visible section: directly right of the chevron.
+    func show(_ item: MenuBarItem) {
+        Task { @MainActor in
+            let wasCollapsed = isHiddenSectionCollapsed
+            if wasCollapsed { setHiddenSectionCollapsed(false); try? await Task.sleep(for: .milliseconds(300)) }
+            await refreshOnly()
+            guard let chevron = dividerItem, let fresh = items.first(where: { $0.key == item.key }) else { return }
+            try? await MenuBarItemMover.move(fresh, to: .rightOf(chevron))
+            await refreshOnly()
+            if wasCollapsed { setHiddenSectionCollapsed(true) }
+            refresh()
+        }
     }
 
     private func refreshOnly() async {
