@@ -332,6 +332,10 @@ final class MenuBarManager: ObservableObject {
 
     // MARK: Panel
 
+    func closePanel() {
+        popover?.performClose(nil)
+    }
+
     @objc private func togglePanel(_ sender: Any?) {
         if let popover, popover.isShown {
             popover.performClose(nil)

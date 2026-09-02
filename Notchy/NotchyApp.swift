@@ -7,6 +7,7 @@ struct NotchyApp: App {
     var body: some Scene {
         Settings {
             SettingsView()
+                .environmentObject(MenuBarManager.shared)
         }
     }
 }
