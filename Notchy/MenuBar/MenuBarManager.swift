@@ -190,12 +190,13 @@ final class MenuBarManager: ObservableObject {
         // Something no longer fits: fold the hidden section so the visible
         // ones get their room back. Expanding again is the user's call.
         let windowIDs = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
-        if autoCollapse, !isHiddenSectionCollapsed, revealTask == nil, !lostItems.isEmpty, !hiddenSectionItems.isEmpty,
-           expandedWithWindows != windowIDs {
+        if autoCollapse, !isHiddenSectionCollapsed, !foldInProgress, revealTask == nil, captureTask == nil,
+           !lostItems.isEmpty, !hiddenSectionItems.isEmpty, expandedWithWindows != windowIDs {
             fputs("=== auto-fold: lost \(lostItems.map(\.key))\n", stderr)
             // Snapshot first: once folded, these windows cannot be captured.
             let snapshot = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
-            Task { @MainActor in
+            captureTask = Task { @MainActor in
+                defer { captureTask = nil }
                 let fresh = await ItemImageCapture.capture(snapshot)
                 hiddenImages.merge(fresh) { _, new in new }
                 setHiddenSectionCollapsed(true)
@@ -230,11 +231,12 @@ final class MenuBarManager: ObservableObject {
     }
 
     private var enforcingOrder = false
+    private var foldInProgress = false
 
     /// The spacer only works directly left of the chevron. Other apps' items
     /// can slip in between (positions are restored per app), so nudge it back.
     private func enforceDividerOrder() {
-        guard !isHiddenSectionCollapsed, !enforcingOrder, revealTask == nil,
+        guard !isHiddenSectionCollapsed, !foldInProgress, !enforcingOrder, revealTask == nil,
               let spacer = spacerItem, let chevron = dividerItem,
               spacer.frame.maxX != chevron.frame.minX
         else { return }
@@ -382,7 +384,10 @@ final class MenuBarManager: ObservableObject {
             refresh()
             return
         }
+        guard !foldInProgress else { return }
+        foldInProgress = true
         Task { @MainActor in
+            defer { foldInProgress = false }
             await foldSafely()
         }
     }
