@@ -56,6 +56,16 @@ struct MenuPanel: View {
                 .font(.caption)
                 .controlSize(.mini)
 
+            if !ItemImageCapture.hasPermission() {
+                HStack(spacing: 6) {
+                    Text("Showing app icons. Allow Screen Recording to see the real glyphs.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Allow…") { ItemImageCapture.requestPermission() }
+                        .controlSize(.mini)
+                }
+            }
+
             section("Visible", manager.visibleSectionItems)
 
             Divider()

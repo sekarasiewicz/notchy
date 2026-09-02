@@ -18,6 +18,11 @@ final class MenuBarManager: ObservableObject {
     /// Set while an item from the hidden section is being shown for a click.
     private var revealTask: Task<Void, Never>?
 
+    /// Window ids present when the user last expanded by hand. Auto-fold
+    /// stays quiet until the set changes, otherwise expanding would be undone
+    /// on the next tick while the overflow still exists.
+    private var expandedWithWindows: Set<CGWindowID>?
+
     /// Autosave names double as defaults keys, keep them short and stable.
     private let mainItem: NSStatusItem
     private let divider: DividerItem
@@ -38,7 +43,7 @@ final class MenuBarManager: ObservableObject {
             accessibilityDescription: "Notchy"
         )
 
-        divider = DividerItem(autosaveName: "NotchyDivider", seedPosition: 1)
+        divider = DividerItem(spacerName: "NotchySpacer", chevronName: "NotchyDivider", seedPosition: 40)
 
         mainItem.button?.target = self
         mainItem.button?.action = #selector(togglePanel(_:))
@@ -90,9 +95,7 @@ final class MenuBarManager: ObservableObject {
                 try? await Task.sleep(for: .seconds(4))
                 fputs("=== collapsing\n", stderr)
                 self.setHiddenSectionCollapsed(true)
-                try? await Task.sleep(for: .seconds(3))
-                self.refresh()
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(7))
                 fputs("=== expanding\n", stderr)
                 self.setHiddenSectionCollapsed(false)
             }
@@ -116,9 +119,13 @@ final class MenuBarManager: ObservableObject {
 
     func refresh() {
         items = MenuBarScanner.scan()
+        enforceDividerOrder()
         // Something no longer fits: fold the hidden section so the visible
         // ones get their room back. Expanding again is the user's call.
-        if autoCollapse, !isHiddenSectionCollapsed, revealTask == nil, !lostItems.isEmpty, !hiddenSectionItems.isEmpty {
+        let windowIDs = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
+        if autoCollapse, !isHiddenSectionCollapsed, revealTask == nil, !lostItems.isEmpty, !hiddenSectionItems.isEmpty,
+           expandedWithWindows != windowIDs {
+            fputs("=== auto-fold: lost \(lostItems.map(\.key))\n", stderr)
             // Snapshot first: once folded, these windows cannot be captured.
             let snapshot = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
             Task { @MainActor in
@@ -146,10 +153,31 @@ final class MenuBarManager: ObservableObject {
     /// Control Center), so our own items are located the same way as everyone
     /// else's: through the scan.
     var dividerItem: MenuBarItem? {
-        items.first { $0.isOwnedByNotchy && $0.axDescription == DividerItem.accessibilityDescription }
+        items.first { $0.isOwnedByNotchy && ($0.axDescription == DividerItem.accessibilityDescription || $0.title == DividerItem.accessibilityDescription) }
     }
 
     var dividerFrame: CGRect? { dividerItem?.frame }
+
+    var spacerItem: MenuBarItem? {
+        items.first { $0.isOwnedByNotchy && ($0.axDescription == "Notchy spacer" || $0.title == "Notchy spacer") }
+    }
+
+    private var enforcingOrder = false
+
+    /// The spacer only works directly left of the chevron. Other apps' items
+    /// can slip in between (positions are restored per app), so nudge it back.
+    private func enforceDividerOrder() {
+        guard !isHiddenSectionCollapsed, !enforcingOrder, revealTask == nil,
+              let spacer = spacerItem, let chevron = dividerItem,
+              spacer.frame.maxX != chevron.frame.minX
+        else { return }
+        enforcingOrder = true
+        Task { @MainActor in
+            defer { enforcingOrder = false }
+            try? await MenuBarItemMover.move(spacer, to: .leftOf(chevron))
+            refreshOnly()
+        }
+    }
 
     /// Items to the left of the divider, i.e. the ones the divider can hide.
     var hiddenSectionItems: [MenuBarItem] {
@@ -246,6 +274,9 @@ final class MenuBarManager: ObservableObject {
     func setHiddenSectionCollapsed(_ collapsed: Bool) {
         divider.setCollapsed(collapsed)
         isHiddenSectionCollapsed = collapsed
+        if !collapsed {
+            expandedWithWindows = Set(MenuBarScanner.scan().filter { !$0.isOwnedByNotchy }.map(\.windowID))
+        }
         refresh()
     }
 
@@ -264,7 +295,6 @@ final class MenuBarManager: ObservableObject {
         )
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         self.popover = popover
-        if !ItemImageCapture.hasPermission() { ItemImageCapture.requestPermission() }
         refresh()
     }
 }
