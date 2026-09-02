@@ -105,6 +105,20 @@ final class MenuBarManager: ObservableObject {
                 if let item = self.items.first(where: { $0.key.contains(key) }) { fputs("=== show \(item.key)\n", stderr); self.show(item) }
             }
         }
+        if ProcessInfo.processInfo.environment["NOTCHY_MISPLACE_TEST"] != nil {
+            // Reproduce a chevron dragged left of its spacer, then fold.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                await self.refreshOnly()
+                if let spacer = self.spacerItem, let chevron = self.dividerItem {
+                    fputs("=== misplacing chevron left of spacer\n", stderr)
+                    try? await MenuBarItemMover.move(chevron, to: .leftOf(spacer))
+                }
+                try? await Task.sleep(for: .seconds(2))
+                fputs("=== folding\n", stderr)
+                self.setHiddenSectionCollapsed(true)
+            }
+        }
         if ProcessInfo.processInfo.environment["NOTCHY_OPEN_PANEL"] != nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(6))
@@ -361,10 +375,40 @@ final class MenuBarManager: ObservableObject {
     }
 
     func setHiddenSectionCollapsed(_ collapsed: Bool) {
-        divider.setCollapsed(collapsed)
-        isHiddenSectionCollapsed = collapsed
-        if !collapsed {
+        guard collapsed else {
+            divider.setCollapsed(false)
+            isHiddenSectionCollapsed = false
             expandedWithWindows = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
+            refresh()
+            return
+        }
+        Task { @MainActor in
+            await foldSafely()
+        }
+    }
+
+    /// Folding stretches the spacer, so the spacer has to sit directly left of
+    /// the chevron or the chevron itself gets pushed off screen, taking the
+    /// only way back with it. The user can ⌘-drag the chevron anywhere, so
+    /// check every time and bail out if the fold still went wrong.
+    private func foldSafely() async {
+        await refreshOnly()
+        if let spacer = spacerItem, let chevron = dividerItem, spacer.frame.maxX != chevron.frame.minX {
+            try? await MenuBarItemMover.move(spacer, to: .leftOf(chevron))
+            await refreshOnly()
+        }
+        guard let spacer = spacerItem, let chevron = dividerItem, spacer.frame.maxX == chevron.frame.minX else {
+            fputs("=== fold aborted: spacer not next to chevron\n", stderr)
+            return
+        }
+        divider.setCollapsed(true)
+        isHiddenSectionCollapsed = true
+        try? await Task.sleep(for: .milliseconds(500))
+        await refreshOnly()
+        if let chevron = dividerItem, !chevron.isOnScreen {
+            fputs("=== fold undone: chevron went off screen\n", stderr)
+            divider.setCollapsed(false)
+            isHiddenSectionCollapsed = false
         }
         refresh()
     }
