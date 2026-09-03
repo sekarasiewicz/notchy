@@ -14,6 +14,11 @@ struct SettingsView: View {
         Form {
             Section("Behaviour") {
                 Toggle("Fold the hidden section when icons run out of room", isOn: $manager.autoCollapse)
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("Show real icon glyphs in the panel", isOn: $manager.captureGlyphs)
+                    Text("Uses screen capture. macOS shows its purple recording indicator whenever glyphs are refreshed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         do {

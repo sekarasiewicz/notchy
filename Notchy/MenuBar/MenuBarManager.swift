@@ -15,6 +15,13 @@ final class MenuBarManager: ObservableObject {
         didSet { UserDefaults.standard.set(autoCollapse, forKey: "autoCollapse"); refresh() }
     }
 
+    /// Snapshotting glyphs goes through ScreenCaptureKit, and macOS shows its
+    /// purple "screen is being captured" indicator for every capture. Off by
+    /// default; the panel falls back to app icons.
+    @Published var captureGlyphs = false {
+        didSet { UserDefaults.standard.set(captureGlyphs, forKey: "captureGlyphs"); if !captureGlyphs { hiddenImages = [:] } }
+    }
+
     /// Set while an item from the hidden section is being shown for a click.
     private var revealTask: Task<Void, Never>?
 
@@ -32,6 +39,7 @@ final class MenuBarManager: ObservableObject {
 
     private init() {
         autoCollapse = UserDefaults.standard.object(forKey: "autoCollapse") as? Bool ?? true
+        captureGlyphs = UserDefaults.standard.object(forKey: "captureGlyphs") as? Bool ?? false
         // Seed slots so the divider starts just left of the Notchy icon.
         // Higher preferred position = further left.
         if StatusItemDefaults.preferredPosition("NotchyMain") == nil {
@@ -198,7 +206,7 @@ final class MenuBarManager: ObservableObject {
            !newcomers.isEmpty, !lostItems.isEmpty, !hiddenSectionItems.isEmpty {
             fputs("=== auto-fold: new \(newcomers.count) item(s), lost \(lostItems.map(\.key))\n", stderr)
             // Snapshot first: once folded, these windows cannot be captured.
-            let snapshot = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
+            let snapshot = captureGlyphs ? items.filter { $0.isOnScreen && !$0.isOwnedByNotchy } : []
             captureTask = Task { @MainActor in
                 defer { captureTask = nil }
                 let fresh = await ItemImageCapture.capture(snapshot)
@@ -291,8 +299,10 @@ final class MenuBarManager: ObservableObject {
     /// Refresh snapshots of whatever is currently drawn. Folded items keep
     /// their last snapshot.
     private func refreshImages() {
-        guard captureTask == nil else { return }
-        let visible = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
+        guard captureGlyphs, captureTask == nil else { return }
+        // Only what is missing: every capture lights up the system indicator.
+        let visible = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy && hiddenImages[$0.key] == nil }
+        guard !visible.isEmpty else { return }
         captureTask = Task { @MainActor in
             defer { captureTask = nil }
             let fresh = await ItemImageCapture.capture(visible)
