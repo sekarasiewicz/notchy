@@ -253,17 +253,25 @@ final class MenuBarManager: ObservableObject {
 
     /// The spacer only works directly left of the chevron. Other apps' items
     /// can slip in between (positions are restored per app), so nudge it back.
+    private var reseatRetryAfter: ContinuousClock.Instant = .now
+
     private func enforceDividerOrder() {
         guard !isHiddenSectionCollapsed, !foldInProgress, !enforcingOrder, revealTask == nil,
-              let spacer = spacerItem, let chevron = dividerItem,
-              spacer.frame.maxX != chevron.frame.minX
+              ContinuousClock.now >= reseatRetryAfter,
+              spacerItem != nil, dividerItem != nil, !spacerIsSeated
         else { return }
         enforcingOrder = true
+        // Recreating a status item is noisy (Control Center logs scene
+        // disconnects) and occasionally does not land where asked, so do not
+        // hammer it.
+        reseatRetryAfter = .now + .seconds(30)
         Task { @MainActor in
             defer { enforcingOrder = false }
+            fputs("=== re-seating spacer next to chevron\n", stderr)
             divider.reseatSpacer()
             try? await Task.sleep(for: .milliseconds(400))
             await refreshOnly()
+            if !spacerIsSeated { fputs("=== spacer still not seated\n", stderr) }
         }
     }
 
