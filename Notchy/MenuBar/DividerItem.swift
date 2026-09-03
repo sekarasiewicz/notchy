@@ -22,12 +22,16 @@ final class DividerItem {
         static var collapsed: CGFloat { (NSScreen.main ?? NSScreen.screens[0]).frame.width }
     }
 
-    let spacer: NSStatusItem
+    private(set) var spacer: NSStatusItem
     let chevron: NSStatusItem
+    private let spacerName: String
+    private let chevronName: String
 
     private(set) var isCollapsed = false
 
     init(spacerName: String, chevronName: String, seedPosition: CGFloat) {
+        self.spacerName = spacerName
+        self.chevronName = chevronName
         // Preferred position is the distance from the right screen edge in
         // points. The spacer has to land just left of the chevron.
         if StatusItemDefaults.preferredPosition(chevronName) == nil {
@@ -38,16 +42,35 @@ final class DividerItem {
             StatusItemDefaults.setPreferredPosition(chevronPosition + 30, spacerName)
         }
 
-        spacer = NSStatusBar.system.statusItem(withLength: Lengths.expanded)
-        spacer.autosaveName = spacerName
-        spacer.button?.isEnabled = false
-        spacer.button?.setAccessibilityLabel("Notchy spacer")
+        spacer = Self.makeSpacer(named: spacerName)
 
         chevron = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         chevron.autosaveName = chevronName
         chevron.button?.imagePosition = .imageOnly
         chevron.button?.setAccessibilityLabel(Self.accessibilityDescription)
         updateChevron()
+    }
+
+    private static func makeSpacer(named name: String) -> NSStatusItem {
+        let item = NSStatusBar.system.statusItem(withLength: Lengths.expanded)
+        item.autosaveName = name
+        item.button?.isEnabled = false
+        item.button?.setAccessibilityLabel("Notchy spacer")
+        return item
+    }
+
+    /// Put the spacer directly left of the chevron, wherever the user has
+    /// dragged the chevron to. AppKit places a status item from its stored
+    /// preferred position (distance from the right screen edge), so writing
+    /// "just past the chevron" and recreating the spacer is enough. No
+    /// synthesised events, and it works even when the spacer is off screen.
+    func reseatSpacer() {
+        guard let chevronPosition = StatusItemDefaults.preferredPosition(chevronName) else { return }
+        let wasCollapsed = isCollapsed
+        NSStatusBar.system.removeStatusItem(spacer)
+        StatusItemDefaults.setPreferredPosition(chevronPosition + 1, spacerName)
+        spacer = Self.makeSpacer(named: spacerName)
+        if wasCollapsed { spacer.length = Lengths.collapsed }
     }
 
     func setCollapsed(_ collapsed: Bool) {

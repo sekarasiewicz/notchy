@@ -191,6 +191,7 @@ final class MenuBarManager: ObservableObject {
         // ones get their room back. Expanding again is the user's call.
         let windowIDs = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
         if autoCollapse, !isHiddenSectionCollapsed, !foldInProgress, revealTask == nil, captureTask == nil,
+           ContinuousClock.now >= foldRetryAfter,
            !lostItems.isEmpty, !hiddenSectionItems.isEmpty, expandedWithWindows != windowIDs {
             fputs("=== auto-fold: lost \(lostItems.map(\.key))\n", stderr)
             // Snapshot first: once folded, these windows cannot be captured.
@@ -231,6 +232,12 @@ final class MenuBarManager: ObservableObject {
     }
 
     private var enforcingOrder = false
+
+    /// Spacer directly left of the chevron, both located.
+    private var spacerIsSeated: Bool {
+        guard let spacer = spacerItem, let chevron = dividerItem else { return false }
+        return abs(spacer.frame.maxX - chevron.frame.minX) <= 1
+    }
     private var foldInProgress = false
 
     /// The spacer only works directly left of the chevron. Other apps' items
@@ -243,7 +250,8 @@ final class MenuBarManager: ObservableObject {
         enforcingOrder = true
         Task { @MainActor in
             defer { enforcingOrder = false }
-            try? await MenuBarItemMover.move(spacer, to: .leftOf(chevron))
+            divider.reseatSpacer()
+            try? await Task.sleep(for: .milliseconds(400))
             await refreshOnly()
         }
     }
@@ -396,14 +404,18 @@ final class MenuBarManager: ObservableObject {
     /// the chevron or the chevron itself gets pushed off screen, taking the
     /// only way back with it. The user can ⌘-drag the chevron anywhere, so
     /// check every time and bail out if the fold still went wrong.
+    private var foldRetryAfter: ContinuousClock.Instant = .now
+
     private func foldSafely() async {
         await refreshOnly()
-        if let spacer = spacerItem, let chevron = dividerItem, spacer.frame.maxX != chevron.frame.minX {
-            try? await MenuBarItemMover.move(spacer, to: .leftOf(chevron))
+        if !spacerIsSeated {
+            divider.reseatSpacer()
+            try? await Task.sleep(for: .milliseconds(400))
             await refreshOnly()
         }
-        guard let spacer = spacerItem, let chevron = dividerItem, spacer.frame.maxX == chevron.frame.minX else {
+        guard spacerIsSeated else {
             fputs("=== fold aborted: spacer not next to chevron\n", stderr)
+            foldRetryAfter = .now + .seconds(30)
             return
         }
         divider.setCollapsed(true)
