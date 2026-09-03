@@ -68,13 +68,16 @@ final class MenuBarSpacing: ObservableObject {
         appliedOffset = offset
 
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        let pids = Set(items.compactMap(\.ownerPID)).subtracting([ownPID])
-        var failed: [String] = []
-        for pid in pids {
-            guard let app = NSRunningApplication(processIdentifier: pid),
-                  app.bundleIdentifier != "com.apple.controlcenter"
-            else { continue }
-            if await !relaunch(app) { failed.append(app.localizedName ?? "pid \(pid)") }
+        let apps = Set(items.compactMap(\.ownerPID)).subtracting([ownPID])
+            .compactMap { NSRunningApplication(processIdentifier: $0) }
+            .filter { $0.bundleIdentifier != "com.apple.controlcenter" }
+        let failed = await withTaskGroup(of: String?.self) { group in
+            for app in apps {
+                group.addTask { @MainActor in
+                    await self.relaunch(app) ? nil : (app.localizedName ?? "pid \(app.processIdentifier)")
+                }
+            }
+            return await group.reduce(into: [String]()) { if let name = $1 { $0.append(name) } }
         }
         if let cc = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").first {
             _ = await quit(cc)
@@ -103,6 +106,14 @@ final class MenuBarSpacing: ObservableObject {
 
     private func relaunch(_ app: NSRunningApplication) async -> Bool {
         guard let url = app.bundleURL, let bundleID = app.bundleIdentifier else { return false }
+        // System agents such as Spotlight are launchd jobs: quitting them
+        // like an app leaves them dead. Let launchd restart them instead.
+        if url.path.hasPrefix("/System/") {
+            let uid = getuid()
+            if Self.run("launchctl", ["kickstart", "-k", "gui/\(uid)/\(bundleID)"]) != nil { return true }
+            // No launchd job under that label: leave it alone rather than kill it.
+            return true
+        }
         guard await quit(app) else { return false }
         // Some apps (Spotlight) respawn on their own.
         if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains(where: { !$0.isTerminated }) {
