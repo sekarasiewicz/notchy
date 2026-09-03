@@ -3,7 +3,7 @@ import CoreGraphics
 import os
 
 /// Thin, safe wrappers over the private window server calls.
-enum WindowServer {
+nonisolated enum WindowServer {
     private static let log = Logger(subsystem: "dev.karasiewicz.Notchy", category: "WindowServer")
 
     private static var connection: CGSConnectionID { CGSMainConnectionID() }

@@ -7,24 +7,24 @@ import CoreGraphics
 typealias CGSConnectionID = Int32
 
 @_silgen_name("CGSMainConnectionID")
-func CGSMainConnectionID() -> CGSConnectionID
+nonisolated func CGSMainConnectionID() -> CGSConnectionID
 
 @_silgen_name("CGSGetWindowCount")
-func CGSGetWindowCount(
+nonisolated func CGSGetWindowCount(
     _ cid: CGSConnectionID,
     _ targetCID: CGSConnectionID,
     _ outCount: inout Int32
 ) -> CGError
 
 @_silgen_name("CGSGetOnScreenWindowCount")
-func CGSGetOnScreenWindowCount(
+nonisolated func CGSGetOnScreenWindowCount(
     _ cid: CGSConnectionID,
     _ targetCID: CGSConnectionID,
     _ outCount: inout Int32
 ) -> CGError
 
 @_silgen_name("CGSGetOnScreenWindowList")
-func CGSGetOnScreenWindowList(
+nonisolated func CGSGetOnScreenWindowList(
     _ cid: CGSConnectionID,
     _ targetCID: CGSConnectionID,
     _ count: Int32,
@@ -33,7 +33,7 @@ func CGSGetOnScreenWindowList(
 ) -> CGError
 
 @_silgen_name("CGSGetProcessMenuBarWindowList")
-func CGSGetProcessMenuBarWindowList(
+nonisolated func CGSGetProcessMenuBarWindowList(
     _ cid: CGSConnectionID,
     _ targetCID: CGSConnectionID,
     _ count: Int32,
@@ -42,7 +42,7 @@ func CGSGetProcessMenuBarWindowList(
 ) -> CGError
 
 @_silgen_name("CGSGetScreenRectForWindow")
-func CGSGetScreenRectForWindow(
+nonisolated func CGSGetScreenRectForWindow(
     _ cid: CGSConnectionID,
     _ wid: CGWindowID,
     _ outRect: inout CGRect

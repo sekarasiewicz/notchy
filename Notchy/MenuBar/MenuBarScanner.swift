@@ -7,7 +7,7 @@ import AppKit
 /// Accessibility tells us *whose* they are. The two are matched by horizontal
 /// overlap, which also weeds out ghost windows Control Center keeps around
 /// after an app quits.
-enum MenuBarScanner {
+nonisolated enum MenuBarScanner {
     /// Runs off the main thread; the AX walk takes tens of milliseconds even
     /// with the no-extras cache warm.
     static func scan() async -> [MenuBarItem] {

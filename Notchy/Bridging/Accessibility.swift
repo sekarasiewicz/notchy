@@ -5,7 +5,7 @@ import ApplicationServices
 /// the undocumented-but-stable `AXExtrasMenuBar` attribute. On macOS 26 this is
 /// the only way to learn which app owns a status item window, because the
 /// window server reports all of them as owned by Control Center.
-enum Accessibility {
+nonisolated enum Accessibility {
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
     @discardableResult

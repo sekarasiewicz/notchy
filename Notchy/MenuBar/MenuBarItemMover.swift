@@ -1,4 +1,5 @@
 import Cocoa
+@preconcurrency import CoreGraphics
 import os
 
 /// Moves and clicks other apps' status items by synthesising the Cmd-drag a

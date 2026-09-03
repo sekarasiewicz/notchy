@@ -4,7 +4,7 @@ import ApplicationServices
 /// One status item, stitched together from two sources:
 /// the window server (window id, whether it is drawn) and Accessibility
 /// (which app owns it, its title). Neither source alone is enough on macOS 26.
-struct MenuBarItem: Identifiable, Hashable {
+nonisolated struct MenuBarItem: Identifiable, Hashable {
     let windowID: CGWindowID
     /// Global CG coordinates, origin top-left.
     let frame: CGRect
