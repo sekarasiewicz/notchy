@@ -6,6 +6,16 @@ you can open like a folder.
 
 **Status: early work in progress.** Built and tested on macOS 26 Tahoe only.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sekarasiewicz/notchy/main/install.sh | bash
+```
+
+Or from a clone: `./install.sh`. Copies `dist/Notchy.zip` to `/Applications`, strips the quarantine flag (the build is ad-hoc signed) and launches the app. Grant Accessibility access on first run.
+
+Rebuild the bundled binary with `scripts/build-release.sh`.
+
 ## What it does today
 
 - Detects status icons that macOS has pushed off screen or under the notch.
