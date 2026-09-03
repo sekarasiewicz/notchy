@@ -32,8 +32,8 @@ final class MenuBarManager: ObservableObject {
     private var knownWindowIDs: Set<CGWindowID>?
 
     /// Autosave names double as defaults keys, keep them short and stable.
-    private let mainItem: NSStatusItem
-    private let divider: DividerItem
+    private var mainItem: NSStatusItem
+    private var divider: DividerItem
     private var refreshTimer: Timer?
     private var popover: NSPopover?
 
@@ -45,14 +45,7 @@ final class MenuBarManager: ObservableObject {
         if StatusItemDefaults.preferredPosition("NotchyMain") == nil {
             StatusItemDefaults.setPreferredPosition(0, "NotchyMain")
         }
-        mainItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        mainItem.autosaveName = "NotchyMain"
-        mainItem.button?.image = NSImage(
-            systemSymbolName: "rectangle.topthird.inset.filled",
-            accessibilityDescription: "Notchy"
-        )
-
-        divider = DividerItem(spacerName: "NotchySpacer", chevronName: "NotchyDivider", seedPosition: 40)
+        (mainItem, divider) = Self.makeStatusItems()
 
         mainItem.button?.target = self
         mainItem.button?.action = #selector(togglePanel(_:))
@@ -68,6 +61,34 @@ final class MenuBarManager: ObservableObject {
         )
         self.popover = popover
         return popover
+    }
+
+    /// Status items pick up spacing defaults only when created.
+    func recreateStatusItems() {
+        let collapsed = isHiddenSectionCollapsed
+        if collapsed { divider.setCollapsed(false) }
+        divider.remove()
+        let position = StatusItemDefaults.preferredPosition("NotchyMain")
+        NSStatusBar.system.removeStatusItem(mainItem)
+        StatusItemDefaults.setPreferredPosition(position, "NotchyMain")
+        (mainItem, divider) = Self.makeStatusItems()
+        mainItem.button?.target = self
+        mainItem.button?.action = #selector(togglePanel(_:))
+        divider.setTarget(self, action: #selector(toggleHiddenSection(_:)))
+        isHiddenSectionCollapsed = false
+        if collapsed { setHiddenSectionCollapsed(true) }
+        refresh()
+    }
+
+    private static func makeStatusItems() -> (NSStatusItem, DividerItem) {
+        let main = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        main.autosaveName = "NotchyMain"
+        main.button?.image = NSImage(
+            systemSymbolName: "rectangle.topthird.inset.filled",
+            accessibilityDescription: "Notchy"
+        )
+        let divider = DividerItem(spacerName: "NotchySpacer", chevronName: "NotchyDivider", seedPosition: 40)
+        return (main, divider)
     }
 
     func start() {
