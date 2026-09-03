@@ -71,6 +71,14 @@ struct MenuPanel: View {
             }
 
             sectionHeader("Visible", hint: "Stays in the bar")
+            ForEach(manager.pinnedItems) { item in
+                HStack(spacing: 6) {
+                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                    Text(item.displayName).font(.callout).lineLimit(1)
+                    Spacer()
+                    Text("pinned by macOS").font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
             ForEach(manager.visibleSectionItems.filter { !$0.isOwnedByNotchy }) { item in
                 HStack(spacing: 6) {
                     Circle()

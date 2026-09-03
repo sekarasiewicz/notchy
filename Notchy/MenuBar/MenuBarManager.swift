@@ -18,10 +18,11 @@ final class MenuBarManager: ObservableObject {
     /// Set while an item from the hidden section is being shown for a click.
     private var revealTask: Task<Void, Never>?
 
-    /// Window ids present when the user last expanded by hand. Auto-fold
-    /// stays quiet until the set changes, otherwise expanding would be undone
-    /// on the next tick while the overflow still exists.
-    private var expandedWithWindows: Set<CGWindowID>?
+    /// Every status item window seen so far. Auto-fold only reacts to a
+    /// window that has never been seen, i.e. a new icon arriving; reacting to
+    /// "something is off screen" would undo the user's own unfold a moment
+    /// later, since the overflow is still there.
+    private var knownWindowIDs: Set<CGWindowID>?
 
     /// Autosave names double as defaults keys, keep them short and stable.
     private let mainItem: NSStatusItem
@@ -189,11 +190,13 @@ final class MenuBarManager: ObservableObject {
         enforceDividerOrder()
         // Something no longer fits: fold the hidden section so the visible
         // ones get their room back. Expanding again is the user's call.
-        let windowIDs = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
+        let windowIDs = Set(items.filter { !$0.isOwnedByNotchy && $0.ownerPID != nil }.map(\.windowID))
+        let newcomers = knownWindowIDs.map { windowIDs.subtracting($0) } ?? windowIDs
+        knownWindowIDs = (knownWindowIDs ?? []).union(windowIDs)
         if autoCollapse, !isHiddenSectionCollapsed, !foldInProgress, revealTask == nil, captureTask == nil,
            ContinuousClock.now >= foldRetryAfter,
-           !lostItems.isEmpty, !hiddenSectionItems.isEmpty, expandedWithWindows != windowIDs {
-            fputs("=== auto-fold: lost \(lostItems.map(\.key))\n", stderr)
+           !newcomers.isEmpty, !lostItems.isEmpty, !hiddenSectionItems.isEmpty {
+            fputs("=== auto-fold: new \(newcomers.count) item(s), lost \(lostItems.map(\.key))\n", stderr)
             // Snapshot first: once folded, these windows cannot be captured.
             let snapshot = items.filter { $0.isOnScreen && !$0.isOwnedByNotchy }
             captureTask = Task { @MainActor in
@@ -257,9 +260,20 @@ final class MenuBarManager: ObservableObject {
     }
 
     /// Items to the left of the divider, i.e. the ones the divider can hide.
+    /// While folded, anything still drawn on the left is pinned by macOS
+    /// (the screen recording indicator, for one) and not ours to manage.
     var hiddenSectionItems: [MenuBarItem] {
         guard let wall = dividerFrame else { return [] }
-        return items.filter { !$0.isOwnedByNotchy && $0.frame.maxX <= wall.minX }
+        return items.filter {
+            !$0.isOwnedByNotchy && $0.frame.maxX <= wall.minX && !(isHiddenSectionCollapsed && $0.isOnScreen)
+        }
+    }
+
+    /// Items macOS keeps on screen no matter what: drawn left of the fold
+    /// while folded.
+    var pinnedItems: [MenuBarItem] {
+        guard isHiddenSectionCollapsed, let wall = dividerFrame else { return [] }
+        return items.filter { !$0.isOwnedByNotchy && $0.frame.maxX <= wall.minX && $0.isOnScreen }
     }
 
     var visibleSectionItems: [MenuBarItem] {
@@ -388,7 +402,6 @@ final class MenuBarManager: ObservableObject {
         guard collapsed else {
             divider.setCollapsed(false)
             isHiddenSectionCollapsed = false
-            expandedWithWindows = Set(items.filter { !$0.isOwnedByNotchy }.map(\.windowID))
             refresh()
             return
         }
