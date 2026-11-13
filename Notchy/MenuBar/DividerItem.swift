@@ -8,6 +8,11 @@ import AppKit
 ///   clickable part has to be a separate item.
 /// - `chevron`, the visible `‹`/`›` button that stays put and toggles the fold.
 ///
+/// macOS 27 lays the bar out itself and never pushes anything past the screen
+/// edge, but the trick survives in another form: a spacer that is too wide to
+/// fit takes everything on its left out of the bar with it. A slot wider than
+/// half the screen is thrown away instead, so the length has to be chosen.
+///
 /// There is no API to hide another app's status item; this is the trick every
 /// menu bar manager relies on.
 @MainActor
@@ -28,6 +33,7 @@ final class DividerItem {
     private let chevronName: String
 
     private(set) var isCollapsed = false
+    private var collapsedLength: CGFloat?
 
     init(spacerName: String, chevronName: String, seedPosition: CGFloat) {
         self.spacerName = spacerName
@@ -70,13 +76,17 @@ final class DividerItem {
         NSStatusBar.system.removeStatusItem(spacer)
         StatusItemDefaults.setPreferredPosition(chevronPosition + 1, spacerName)
         spacer = Self.makeSpacer(named: spacerName)
-        if wasCollapsed { spacer.length = Lengths.collapsed }
+        if wasCollapsed { spacer.length = collapsedLength ?? Lengths.collapsed }
     }
 
-    func setCollapsed(_ collapsed: Bool) {
-        guard collapsed != isCollapsed else { return }
+    /// `length` overrides how far the spacer stretches. macOS 27 needs a
+    /// measured value (see `MenuBarManager.foldLengths`); passing a new one
+    /// while already collapsed re-stretches the spacer.
+    func setCollapsed(_ collapsed: Bool, length: CGFloat? = nil) {
+        guard collapsed != isCollapsed || (collapsed && length != nil) else { return }
         isCollapsed = collapsed
-        spacer.length = collapsed ? Lengths.collapsed : Lengths.expanded
+        collapsedLength = collapsed ? (length ?? Lengths.collapsed) : nil
+        spacer.length = collapsedLength ?? Lengths.expanded
         updateChevron()
     }
 

@@ -19,6 +19,23 @@ enum ItemImageCapture {
     /// `MenuBarItem.key`. Items that fail are simply absent.
     static func capture(_ items: [MenuBarItem]) async -> [String: NSImage] {
         guard hasPermission(), !items.isEmpty else { return [:] }
+        if #available(macOS 27.0, *) {
+            // No per-item windows: cut each item out of the bar instead. The
+            // glyph comes with whatever was behind the bar at that moment.
+            // Items slide around for a while after anything changes, and a
+            // crop taken mid-slide is kept for good, so only take items that
+            // sit still across two scans.
+            let wanted = Set(items.map(\.key))
+            let before = Dictionary(await MenuBarScanner.scan().map { ($0.key, $0.frame) }) { first, _ in first }
+            try? await Task.sleep(for: .milliseconds(250))
+            let now = await MenuBarScanner.scan()
+            var out: [String: NSImage] = [:]
+            for item in now where wanted.contains(item.key) && item.isOnScreen && item.frame.width > 0 && before[item.key] == item.frame {
+                guard let cgImage = try? await SCScreenshotManager.captureImage(in: item.frame) else { continue }
+                out[item.key] = NSImage(cgImage: cgImage, size: item.frame.size)
+            }
+            return out
+        }
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else {
             return [:]
         }

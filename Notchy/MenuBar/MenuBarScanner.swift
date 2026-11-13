@@ -7,6 +7,8 @@ import AppKit
 /// Accessibility tells us *whose* they are. The two are matched by horizontal
 /// overlap, which also weeds out ghost windows Control Center keeps around
 /// after an app quits.
+///
+/// macOS 27 has none of those windows; see `MenuBarAgentScanner`.
 nonisolated enum MenuBarScanner {
     /// Runs off the main thread; the AX walk takes tens of milliseconds even
     /// with the no-extras cache warm.
@@ -15,6 +17,7 @@ nonisolated enum MenuBarScanner {
     }
 
     static func scanSync() -> [MenuBarItem] {
+        if Platform.hasUnifiedMenuBar { return MenuBarAgentScanner.scanSync() }
         let windows = statusItemWindows()
         var extras = Accessibility.allExtras()
 

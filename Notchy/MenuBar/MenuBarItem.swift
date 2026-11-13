@@ -5,6 +5,8 @@ import ApplicationServices
 /// the window server (window id, whether it is drawn) and Accessibility
 /// (which app owns it, its title). Neither source alone is enough on macOS 26.
 nonisolated struct MenuBarItem: Identifiable, Hashable {
+    /// The item's window on macOS 26. macOS 27 has no per-item windows, so
+    /// there this is a stand-in from `SyntheticWindowID`, stable per `key`.
     let windowID: CGWindowID
     /// Global CG coordinates, origin top-left.
     let frame: CGRect
@@ -28,6 +30,10 @@ nonisolated struct MenuBarItem: Identifiable, Hashable {
     /// Apple's own items carry a proper identifier; third-party ones rarely
     /// have any text, so their slot index has to do.
     var key: String {
+        Self.key(bundleID: bundleID, indexInApp: indexInApp, title: title, axDescription: axDescription, axIdentifier: axIdentifier)
+    }
+
+    static func key(bundleID: String?, indexInApp: Int, title: String?, axDescription: String?, axIdentifier: String?) -> String {
         if let axIdentifier, !axIdentifier.isEmpty { return axIdentifier }
         let app = bundleID ?? "<null>"
         if let title, !title.isEmpty { return "\(app):\(title)" }

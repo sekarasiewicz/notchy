@@ -10,6 +10,9 @@ import os
 /// marker null event and the real event between a per-process tap and the
 /// session tap until the item's process has seen the real event. All of it is
 /// forbidden magic and may break with any macOS release.
+///
+/// It did break with macOS 27, which draws all items in one window. There the
+/// same two operations go through `PointerDriver` instead.
 enum MenuBarItemMover {
     private static let log = Logger(subsystem: "dev.karasiewicz.Notchy", category: "Mover")
 
@@ -37,6 +40,10 @@ enum MenuBarItemMover {
     /// Moves `item` so it sits directly left or right of the destination
     /// target. Retries a few times; item ordering in the bar is flaky.
     static func move(_ item: MenuBarItem, to destination: Destination, attempts: Int = 5) async throws {
+        if Platform.hasUnifiedMenuBar {
+            try await moveWithPointer(item, to: destination)
+            return
+        }
         if try isInPlace(item, destination) { return }
         var lastError: Error = MoveError.notMoved
         for attempt in 1...attempts {
@@ -65,6 +72,10 @@ enum MenuBarItemMover {
     }
 
     static func click(_ item: MenuBarItem, button: CGMouseButton = .left) async throws {
+        if Platform.hasUnifiedMenuBar {
+            try await PointerDriver.click(at: CGPoint(x: item.frame.midX, y: item.frame.midY))
+            return
+        }
         guard let pid = item.ownerPID else { throw MoveError.noOwner(item) }
         guard let bounds = WindowServer.frame(of: item.windowID) else { throw MoveError.boundsUnavailable }
         let point = CGPoint(x: bounds.midX, y: bounds.midY)
@@ -79,6 +90,48 @@ enum MenuBarItemMover {
         try permitLocalEvents()
         try await relay(down, pid: pid, timeout: .milliseconds(250), repeating: 1, threeTaps: false)
         try await relay(up, pid: pid, timeout: .milliseconds(250), repeating: 2, threeTaps: false)
+    }
+
+    // MARK: macOS 27
+
+    /// ⌘-drags `item` next to the destination with real pointer events and
+    /// checks the result against a fresh scan, since there is no window whose
+    /// frame could be polled.
+    private static func moveWithPointer(_ item: MenuBarItem, to destination: Destination, attempts: Int = 3) async throws {
+        for attempt in 1...attempts {
+            let items = await MenuBarScanner.scan()
+            guard let current = items.first(where: { $0.windowID == item.windowID }),
+                  let target = items.first(where: { $0.windowID == destination.target.windowID })
+            else { throw MoveError.boundsUnavailable }
+            if isAdjacent(current, target, destination, in: items) { return }
+            // An item folded behind the system's own overflow arrow is not
+            // drawn, so there is nothing to grab.
+            guard current.isOnScreen, target.isOnScreen else { throw MoveError.boundsUnavailable }
+            let start = CGPoint(x: current.frame.midX, y: current.frame.midY)
+            let end = switch destination {
+            case .leftOf: CGPoint(x: target.frame.minX - 4, y: target.frame.midY)
+            case .rightOf: CGPoint(x: target.frame.maxX + 4, y: target.frame.midY)
+            }
+            try await PointerDriver.commandDrag(from: start, to: end)
+            // The bar animates items into their new slots.
+            try await Task.sleep(for: .milliseconds(500))
+            log.debug("Pointer move attempt \(attempt) done")
+        }
+        let items = await MenuBarScanner.scan()
+        guard let current = items.first(where: { $0.windowID == item.windowID }),
+              let target = items.first(where: { $0.windowID == destination.target.windowID }),
+              isAdjacent(current, target, destination, in: items)
+        else { throw MoveError.notMoved }
+    }
+
+    /// System extras sit a few points apart, so compare order, not edges.
+    private static func isAdjacent(_ item: MenuBarItem, _ target: MenuBarItem, _ destination: Destination, in items: [MenuBarItem]) -> Bool {
+        let order = items.filter(\.isOnScreen).sorted { $0.frame.minX < $1.frame.minX }.map(\.windowID)
+        guard let a = order.firstIndex(of: item.windowID), let b = order.firstIndex(of: target.windowID) else { return false }
+        return switch destination {
+        case .leftOf: a + 1 == b
+        case .rightOf: a == b + 1
+        }
     }
 
     // MARK: Move mechanics
