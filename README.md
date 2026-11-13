@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/sekarasiewicz/notchy/main/install.s
 
 Or from a clone: `./install.sh`. Copies `dist/Notchy.zip` to `/Applications`, strips the quarantine flag (the build is ad-hoc signed) and launches the app. Grant Accessibility access on first run.
 
+Updating is the same command. If Notchy sees no icons after an update, remove it from System Settings → Privacy & Security → Accessibility and add it again: each ad-hoc signed build has a new signature, and macOS keeps the old grant without applying it.
+
 Rebuild the bundled binary with `scripts/build-release.sh`.
 
 ## What it does today
